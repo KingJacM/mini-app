@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+firebase-admin
+sqlalchemy
+asyncpg
+psycopg[binary]
+boto3
+python-multipart
+pyrebase4
