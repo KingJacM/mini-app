@@ -1,20 +1,21 @@
-import React, {
-  useEffect,
-  useRef,
-  useState,
-  Fragment,
-} from "react";
+import React, { useEffect, useRef, useState, Fragment } from "react";
 import { auth } from "../firebase";
 import { useRecording } from "../context/RecordingContext";
+import {
+  Box,
+  Button,
+  Paper,
+  TextField,
+  Typography,
+  Stack,
+  CircularProgress,
+} from "@mui/material";
 
-/* helper: nicely format mm:ss */
 const fmt = (s: number) =>
   `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(
     2,
-    "0",
+    "0"
   )}`;
-
-
 
 export default function Recorder() {
   const { state, dispatch } = useRecording();
@@ -26,8 +27,8 @@ export default function Recorder() {
   const chunksRef = useRef<Blob[]>([]);
 
   const [title, setTitle] = useState("");
-  /* ------------ helper to start camera ------------ */
-  const startCamera = async () => {                     // 🔄 ADDED
+
+  const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
@@ -38,7 +39,7 @@ export default function Recorder() {
       alert("Cannot access camera/mic");
     }
   };
-  /* ---------- boot camera feed once ---------- */
+
   useEffect(() => {
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
@@ -48,20 +49,15 @@ export default function Recorder() {
       .catch(() => alert("Cannot access camera/mic"));
   }, []);
 
-
-  /* ---------- start camera if READY phase ---------- */
   useEffect(() => {
     if (state.phase === "READY") {
-      const tracks = (liveRef.current?.srcObject as MediaStream | null)?.getTracks() || [];
-      const ended  = tracks.every((t) => t.readyState === "ended");
+      const tracks =
+        (liveRef.current?.srcObject as MediaStream | null)?.getTracks() || [];
+      const ended = tracks.every((t) => t.readyState === "ended");
       if (!tracks.length || ended) startCamera();
     }
   }, [state.phase]);
-  
-  /* -------------------------------------------------- */
 
-
-  /* ---------- countdown → start recording ---------- */
   useEffect(() => {
     if (state.phase !== "COUNTDOWN") return;
     if (state.countdown === 0) {
@@ -72,17 +68,15 @@ export default function Recorder() {
     return () => clearTimeout(id);
   }, [state.phase, state.countdown]);
 
-  /* ---------- show blob preview in REVIEW ---------- */
   useEffect(() => {
     if (state.phase !== "REVIEW" || !state.blob || !reviewRef.current) return;
-    reviewRef.current.srcObject = null;            // ✅ clear old stream
+    reviewRef.current.srcObject = null;
     const url = URL.createObjectURL(state.blob);
     reviewRef.current.src = url;
     reviewRef.current.play();
     return () => URL.revokeObjectURL(url);
   }, [state.phase, state.blob]);
 
-  /* ------------------------------------------------------------------ */
   const startRecording = () => {
     if (!liveRef.current?.srcObject) return;
 
@@ -95,11 +89,9 @@ export default function Recorder() {
     mr.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
 
     mr.onstop = () => {
-      /* stop camera tracks so webcam freezes */
       (liveRef.current?.srcObject as MediaStream)
         ?.getTracks()
         .forEach((t) => t.stop());
-
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
       dispatch({ type: "STOP_RECORDING", blob });
     };
@@ -136,52 +128,77 @@ export default function Recorder() {
       alert("Upload failed – please try again.");
     }
   };
-  /* ------------------------------------------------------------------ */
 
   return (
-    <section className="mb-10 space-y-4">
-      {/* ---------- video area (key forces remount) ---------- */}
-      {state.phase === "REVIEW" ? (
-        <video
-          key="review"                 /* ✅ remounts → no srcObject */
-          ref={reviewRef}
-          controls
-          className="w-full max-w-4xl aspect-video bg-black rounded-xl shadow-xl"
-        />
-      ) : (
-        <video
-          key="live"
-          ref={liveRef}
-          autoPlay
-          muted
-          playsInline
-          className="w-full max-w-4xl aspect-video bg-black rounded-xl shadow-xl"
-        />
-      )}
+    <Box>
+      <Box sx={{ mb: 4 }}>
+        {state.phase === "REVIEW" ? (
+          <video
+            key="review"
+            ref={reviewRef}
+            controls
+            style={{
+              width: "100%",
+              maxWidth: "960px",
+              aspectRatio: "16/9",
+              background: "black",
+              borderRadius: 12,
+              boxShadow: "0 6px 20px rgba(0,0,0,0.15)",
+            }}
+          />
+        ) : (
+          <video
+            key="live"
+            ref={liveRef}
+            autoPlay
+            muted
+            playsInline
+            style={{
+              width: "100%",
+              maxWidth: "960px",
+              aspectRatio: "16/9",
+              background: "black",
+              borderRadius: 12,
+              boxShadow: "0 6px 20px rgba(0,0,0,0.15)",
+            }}
+          />
+        )}
 
-      {/* overlay countdown */}
-      {state.phase === "COUNTDOWN" && (
-        <div className="absolute inset-0 flex items-center justify-center text-white text-7xl font-bold backdrop-brightness-50 select-none">
-          {state.countdown}
-        </div>
-      )}
+        {state.phase === "COUNTDOWN" && (
+          <Typography
+            variant="h2"
+            color="white"
+            sx={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              zIndex: 10,
+              backdropFilter: "brightness(50%)",
+            }}
+          >
+            {state.countdown}
+          </Typography>
+        )}
+      </Box>
 
-      {/* ---------- toolbar ---------- */}
-      <Toolbar
-        phase={state.phase}
-        timer={state.timer}
-        startCountdown={() => dispatch({ type: "START_COUNTDOWN" })}
-        stopRecording={stopRecording}
-        discard={discard}
-        upload={upload}
-        title={title}
-        setTitle={setTitle}
-      />
-    </section>
+      <Paper sx={{ p: 3 }}>
+        <Toolbar
+          phase={state.phase}
+          timer={state.timer}
+          startCountdown={() => dispatch({ type: "START_COUNTDOWN" })}
+          stopRecording={stopRecording}
+          discard={discard}
+          upload={upload}
+          title={title}
+          setTitle={setTitle}
+        />
+      </Paper>
+    </Box>
   );
 }
 
-/* ————————————————— toolbar ————————————————— */
+/* ———————————————————— Toolbar Component ———————————————————— */
 
 function Toolbar(props: {
   phase: string;
@@ -205,49 +222,57 @@ function Toolbar(props: {
   } = props;
 
   return (
-    <div className="flex flex-col sm:flex-row gap-3 items-center">
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center">
       {phase === "READY" && (
-        <button className="btn-primary" onClick={startCountdown}>
-          ▶️ Record
-        </button>
+        <Button variant="contained" color="primary" onClick={startCountdown}>
+          ▶️ Start Recording
+        </Button>
       )}
 
       {phase === "RECORDING" && (
         <Fragment>
-          <div className="flex items-center gap-2 font-mono text-red-600">
-            <span className="animate-pulse">●</span>
-            {fmt(timer)}
-          </div>
-          <button className="btn-danger" onClick={stopRecording}>
+          <Typography
+            fontFamily="monospace"
+            fontWeight="bold"
+            color="error"
+            display="flex"
+            alignItems="center"
+          >
+            <span style={{ marginRight: 8 }}>●</span> {fmt(timer)}
+          </Typography>
+          <Button variant="contained" color="error" onClick={stopRecording}>
             ⏹ Stop
-          </button>
+          </Button>
         </Fragment>
       )}
 
       {phase === "REVIEW" && (
         <Fragment>
-          <input
-            className="input flex-1"
-            placeholder="Recording title…"
+          <TextField
+            label="Recording title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            fullWidth
           />
-          <button
-            className="btn-primary disabled:opacity-40"
-            disabled={!title.trim()}
+          <Button
+            variant="contained"
             onClick={upload}
+            disabled={!title.trim()}
           >
             💾 Save
-          </button>
-          <button className="btn-secondary" onClick={discard}>
+          </Button>
+          <Button variant="outlined" color="secondary" onClick={discard}>
             🗑 Discard
-          </button>
+          </Button>
         </Fragment>
       )}
 
       {phase === "UPLOADING" && (
-        <span className="text-indigo-600 animate-pulse">Uploading…</span>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <CircularProgress size={20} />
+          <Typography color="primary">Uploading…</Typography>
+        </Stack>
       )}
-    </div>
+    </Stack>
   );
 }
