@@ -2,6 +2,14 @@ import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase";
 import { useNavigate, Link } from "react-router-dom";
 import { useState } from "react";
+import {
+  Box,
+  Paper,
+  TextField,
+  Typography,
+  Button,
+  Alert,
+} from "@mui/material";
 
 export default function Register() {
   const nav = useNavigate();
@@ -14,21 +22,61 @@ export default function Register() {
     try {
       await createUserWithEmailAndPassword(auth, email, pw);
       nav("/dash");
-    } catch (ex) { setErr(ex.message); }
+    } catch (ex) {
+      setErr(ex.message);
+    }
   };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-gradient-to-br from-teal-600 to-emerald-600">
-      <form onSubmit={handle} className="bg-white p-8 rounded-2xl shadow-xl w-80">
-        <h1 className="text-2xl font-bold mb-6 text-center">Register</h1>
-        {err && <p className="text-red-600 text-sm mb-2">{err}</p>}
-        <input className="input" placeholder="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)} required/>
-        <input className="input mt-3" placeholder="Password" type="password" value={pw} onChange={e=>setPw(e.target.value)} required/>
-        <button className="btn-primary w-full mt-6">Create account</button>
-        <p className="text-center text-sm mt-4">
-          Already registered? <Link className="text-teal-600" to="/login">Login</Link>
-        </p>
-      </form>
-    </div>
+    <Box
+      sx={{
+        height: "100vh",
+        background: "linear-gradient(to bottom right, #14b8a6, #10b981)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <Paper elevation={6} sx={{ p: 4, width: 360 }}>
+        <Typography variant="h5" fontWeight="bold" align="center" mb={3}>
+          Register
+        </Typography>
+        {err && <Alert severity="error">{err}</Alert>}
+        <Box component="form" onSubmit={handle} mt={2}>
+          <TextField
+            fullWidth
+            label="Email"
+            type="email"
+            margin="normal"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <TextField
+            fullWidth
+            label="Password"
+            type="password"
+            margin="normal"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            required
+          />
+          <Button
+            fullWidth
+            type="submit"
+            variant="contained"
+            sx={{ mt: 3 }}
+          >
+            Create account
+          </Button>
+          <Typography align="center" mt={2} fontSize={14}>
+            Already registered?{" "}
+            <Link to="/login" style={{ color: "#14b8a6" }}>
+              Login
+            </Link>
+          </Typography>
+        </Box>
+      </Paper>
+    </Box>
   );
 }

@@ -1,120 +1,278 @@
-// src/components/Recorder.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, Fragment } from "react";
 import { auth } from "../firebase";
+import { useRecording } from "../context/RecordingContext";
+import {
+  Box,
+  Button,
+  Paper,
+  TextField,
+  Typography,
+  Stack,
+  CircularProgress,
+} from "@mui/material";
 
-type Phase = "IDLE" | "RECORDING" | "PREVIEW";
+const fmt = (s: number) =>
+  `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(
+    2,
+    "0"
+  )}`;
 
 export default function Recorder() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const { state, dispatch } = useRecording();
 
-  const [chunks, setChunks] = useState<Blob[]>([]);
-  const [phase, setPhase] = useState<Phase>("IDLE");
-  const [filename, setFilename] = useState("");
+  const liveRef = useRef<HTMLVideoElement>(null);
+  const reviewRef = useRef<HTMLVideoElement>(null);
 
-  /* ---------- set up camera ---------- */
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const [title, setTitle] = useState("");
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      if (liveRef.current) liveRef.current.srcObject = stream;
+    } catch {
+      alert("Cannot access camera/mic");
+    }
+  };
+
   useEffect(() => {
-    if (!navigator.mediaDevices || !window.MediaRecorder) return;
-
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        if (liveRef.current) liveRef.current.srcObject = stream;
       })
-      .catch(() => alert("Camera or microphone access denied."));
+      .catch(() => alert("Cannot access camera/mic"));
   }, []);
 
-  /* ---------- handlers ---------- */
-  const startRecording = () => {
-    if (!videoRef.current?.srcObject) return;
+  useEffect(() => {
+    if (state.phase === "READY") {
+      const tracks =
+        (liveRef.current?.srcObject as MediaStream | null)?.getTracks() || [];
+      const ended = tracks.every((t) => t.readyState === "ended");
+      if (!tracks.length || ended) startCamera();
+    }
+  }, [state.phase]);
 
-    const mr = new MediaRecorder(videoRef.current.srcObject as MediaStream, {
+  useEffect(() => {
+    if (state.phase !== "COUNTDOWN") return;
+    if (state.countdown === 0) {
+      startRecording();
+      return;
+    }
+    const id = setTimeout(() => dispatch({ type: "TICK_COUNTDOWN" }), 1_000);
+    return () => clearTimeout(id);
+  }, [state.phase, state.countdown]);
+
+  useEffect(() => {
+    if (state.phase !== "REVIEW" || !state.blob || !reviewRef.current) return;
+    reviewRef.current.srcObject = null;
+    const url = URL.createObjectURL(state.blob);
+    reviewRef.current.src = url;
+    reviewRef.current.play();
+    return () => URL.revokeObjectURL(url);
+  }, [state.phase, state.blob]);
+
+  const startRecording = () => {
+    if (!liveRef.current?.srcObject) return;
+
+    chunksRef.current = [];
+
+    const mr = new MediaRecorder(liveRef.current.srcObject as MediaStream, {
       mimeType: "video/webm",
     });
-    mr.ondataavailable = (e) =>
-      setChunks((prev) => [...prev, e.data as Blob]);
-    mr.onstop = () => setPhase("PREVIEW");
+
+    mr.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
+
+    mr.onstop = () => {
+      (liveRef.current?.srcObject as MediaStream)
+        ?.getTracks()
+        .forEach((t) => t.stop());
+      const blob = new Blob(chunksRef.current, { type: "video/webm" });
+      dispatch({ type: "STOP_RECORDING", blob });
+    };
+
     mr.start();
-
-    mediaRecorderRef.current = mr;
-    setChunks([]);
-    setPhase("RECORDING");
+    mediaRecorder.current = mr;
+    dispatch({ type: "START_RECORDING" });
   };
 
-  const stopRecording = () => mediaRecorderRef.current?.stop();
+  const stopRecording = () => mediaRecorder.current?.stop();
+  const discard = () => dispatch({ type: "DISCARD" });
 
-  const discard = () => {
-    setChunks([]);
-    setFilename("");
-    setPhase("IDLE");
+  const upload = async () => {
+    if (!state.blob) return;
+    dispatch({ type: "UPLOAD_START" });
+
+    try {
+      const form = new FormData();
+      form.append("file", state.blob, `${title || "untitled"}.webm`);
+      form.append("filename", title || "Untitled recording");
+
+      const token = await auth.currentUser!.getIdToken();
+      await fetch(`${import.meta.env.VITE_API_URL}/videos/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+
+      window.dispatchEvent(new Event("refresh-videos"));
+      dispatch({ type: "UPLOAD_SUCCESS" });
+      setTitle("");
+    } catch {
+      dispatch({ type: "UPLOAD_FAIL" });
+      alert("Upload failed – please try again.");
+    }
   };
 
-  const save = async () => {
-    if (!chunks.length) return;
-    const user = auth.currentUser;
-    if (!user) return alert("You’re not logged in.");
-
-    const blob = new Blob(chunks, { type: "video/webm" });
-    const form = new FormData();
-    form.append("file", blob, `${filename || "untitled"}.webm`);
-    form.append("filename", filename || "Untitled recording");
-
-    const token = await user.getIdToken();
-    await fetch(`${import.meta.env.VITE_API_URL}/videos/upload`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    });
-
-    window.dispatchEvent(new Event("refresh-videos"));
-    discard();
-  };
-
-  /* ---------- render ---------- */
   return (
-    <section className="mb-10 space-y-4">
-      {/* live preview or playback */}
-      <video
-        ref={videoRef}
-        autoPlay
-        muted={phase !== "PREVIEW"}
-        controls={phase === "PREVIEW"}
-        className="w-full max-w-4xl aspect-video bg-black rounded-xl shadow-lg"
-      />
+    <Box>
+      <Box sx={{ mb: 4 }}>
+        {state.phase === "REVIEW" ? (
+          <video
+            key="review"
+            ref={reviewRef}
+            controls
+            style={{
+              width: "100%",
+              maxWidth: "960px",
+              aspectRatio: "16/9",
+              background: "black",
+              borderRadius: 12,
+              boxShadow: "0 6px 20px rgba(0,0,0,0.15)",
+            }}
+          />
+        ) : (
+          <video
+            key="live"
+            ref={liveRef}
+            autoPlay
+            muted
+            playsInline
+            style={{
+              width: "100%",
+              maxWidth: "960px",
+              aspectRatio: "16/9",
+              background: "black",
+              borderRadius: 12,
+              boxShadow: "0 6px 20px rgba(0,0,0,0.15)",
+            }}
+          />
+        )}
 
-      {/* controls */}
-      {phase === "IDLE" && (
-        <button className="btn-primary" onClick={startRecording}>
-          ▶️ Start recording
-        </button>
+        {state.phase === "COUNTDOWN" && (
+          <Typography
+            variant="h2"
+            color="white"
+            sx={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              zIndex: 10,
+              backdropFilter: "brightness(50%)",
+            }}
+          >
+            {state.countdown}
+          </Typography>
+        )}
+      </Box>
+
+      <Paper sx={{ p: 3 }}>
+        <Toolbar
+          phase={state.phase}
+          timer={state.timer}
+          startCountdown={() => dispatch({ type: "START_COUNTDOWN" })}
+          stopRecording={stopRecording}
+          discard={discard}
+          upload={upload}
+          title={title}
+          setTitle={setTitle}
+        />
+      </Paper>
+    </Box>
+  );
+}
+
+/* ———————————————————— Toolbar Component ———————————————————— */
+
+function Toolbar(props: {
+  phase: string;
+  timer: number;
+  startCountdown: () => void;
+  stopRecording: () => void;
+  discard: () => void;
+  upload: () => void;
+  title: string;
+  setTitle: (s: string) => void;
+}) {
+  const {
+    phase,
+    timer,
+    startCountdown,
+    stopRecording,
+    discard,
+    upload,
+    title,
+    setTitle,
+  } = props;
+
+  return (
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center">
+      {phase === "READY" && (
+        <Button variant="contained" color="primary" onClick={startCountdown}>
+          ▶️ Start Recording
+        </Button>
       )}
 
       {phase === "RECORDING" && (
-        <button className="btn-danger" onClick={stopRecording}>
-          ⏹ Stop
-        </button>
+        <Fragment>
+          <Typography
+            fontFamily="monospace"
+            fontWeight="bold"
+            color="error"
+            display="flex"
+            alignItems="center"
+          >
+            <span style={{ marginRight: 8 }}>●</span> {fmt(timer)}
+          </Typography>
+          <Button variant="contained" color="error" onClick={stopRecording}>
+            ⏹ Stop
+          </Button>
+        </Fragment>
       )}
 
-      {phase === "PREVIEW" && (
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            className="input flex-1"
-            placeholder="Recording title…"
-            value={filename}
-            onChange={(e) => setFilename(e.target.value)}
+      {phase === "REVIEW" && (
+        <Fragment>
+          <TextField
+            label="Recording title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            fullWidth
           />
-          <button
-            className="btn-primary disabled:opacity-40"
-            disabled={!filename.trim()}
-            onClick={save}
+          <Button
+            variant="contained"
+            onClick={upload}
+            disabled={!title.trim()}
           >
             💾 Save
-          </button>
-          <button className="btn-secondary" onClick={discard}>
+          </Button>
+          <Button variant="outlined" color="secondary" onClick={discard}>
             🗑 Discard
-          </button>
-        </div>
+          </Button>
+        </Fragment>
       )}
-    </section>
+
+      {phase === "UPLOADING" && (
+        <Stack direction="row" spacing={2} alignItems="center">
+          <CircularProgress size={20} />
+          <Typography color="primary">Uploading…</Typography>
+        </Stack>
+      )}
+    </Stack>
   );
 }

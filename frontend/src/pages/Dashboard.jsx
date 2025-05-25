@@ -2,17 +2,48 @@ import React from "react";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase";
 import Recorder from "../components/Recorder";
-import VideoList from "../components/VideoList";
+import LibraryGrid from "../components/LibraryGrid";
+import { RecordingProvider } from "../context/RecordingContext";
+import {
+  Container,
+  Typography,
+  Box,
+  Divider,
+  Button,
+  Stack,
+} from "@mui/material";
 
 export default function Dashboard() {
   return (
-    <div className="container mx-auto p-6">
-      <header className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">🎥 My Recordings</h1>
-        <button className="btn-secondary" onClick={()=>signOut(auth)}>Sign out</button>
-      </header>
-      <Recorder />
-      <VideoList />
-    </div>
+    <RecordingProvider>
+      <Container maxWidth="lg" sx={{ py: 4 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={4}>
+          <Typography variant="h4" fontWeight="bold">
+            🎥 My Recordings
+          </Typography>
+          <Button variant="outlined" onClick={() => signOut(auth)}>
+            Sign Out
+          </Button>
+        </Stack>
+
+        {/* Record Section */}
+        <Box mb={6}>
+          <Typography variant="h6" gutterBottom>
+            Record a New Video
+          </Typography>
+          <Recorder />
+        </Box>
+
+        <Divider sx={{ my: 4 }} />
+
+        {/* Library Section */}
+        <Box>
+          <Typography variant="h6" gutterBottom>
+            Your Recordings
+          </Typography>
+          <LibraryGrid />
+        </Box>
+      </Container>
+    </RecordingProvider>
   );
 }
